@@ -21,7 +21,7 @@ hds = [{'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.
 {'User-Agent': 'Opera/9.80 (Macintosh; Intel Mac OS X 10.6.8; U; en) Presto/2.8.131 Version/11.11'},
 {'User-Agent': 'Opera/9.80 (Windows NT 6.1; U; en) Presto/2.8.131 Version/11.11'}]
 
-sessionId = 'wx_b126bd8dccb4f83d2af8b210b11b9926';
+sessionId = 'wx_b126bd8dccb4f83d2af8b210b11b9926'
 # 存储在mongodb
 # client = pymongo.MongoClient(host='localhost', port=27017)
 # db = client['mealplan']
@@ -36,7 +36,10 @@ def main(url, header, page, param = {}, type = '', *args):
        headers = hds[random.randint(0, len(hds) - 1)]
        dictMerged = headers.copy()
        dictMerged.update(header)
-       res = requests.get(newUrl, headers = dictMerged, data=json.dumps(param))
+       requests.adapters.DEFAULT_RETRIES = 5 # 增加重连次数
+       s = requests.session()
+       s.keep_alive = False # 关闭多余连接
+       res = s.get(newUrl, headers = dictMerged, data=json.dumps(param))
        res = json.loads(res.content)
        # 店铺排名查询
        # sql = "INSERT INTO shops(name,category,s_id,month_sales,price,score,created_at) values(%s,%s,%s,%s,%s,%s,%s)"
@@ -82,9 +85,9 @@ def main(url, header, page, param = {}, type = '', *args):
                             #        pass
                             # pass
        if type == '':
-              if res['records']:
+              if res and res.get('records'):
                      list = res['records']
-                     for target_list, key in list:
+                     for target_list in list:
                             # console.log(key)
                             nowTime =  time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
                             sql = "INSERT INTO new_brands(company, categories, close_count, evaluation, good_rate, name, open_count, slug, created_at) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)"
@@ -95,7 +98,7 @@ def main(url, header, page, param = {}, type = '', *args):
                             except:
                                    db.rollback()
                             pass
-              if res['records'] & page != 0:
+              if res and res.get('records') and page != 0:
                      page = page + 1
                      main(
                             url = url,
@@ -119,39 +122,55 @@ categoryRes = main(
        type = 'category'
 )['records']
 
-# print(cityRes)
-# print(categoryRes)
+print(cityRes)
+print(categoryRes)
 
 # 多级分类筛选
-for cityKey, citys in cityRes.item():
-       main(
-              url = 'https://fa.kaoputou.com/api/brands/ranking?category=&price=&region=' + cityKey + '&sort_key=shop_count&page=',
-              header = { 'sessionId': sessionId },
-              page = 1,
-       )
-       for categorys in categoryRes:
-              for category in categorys:
-                     main(
-                            url = 'https://fa.kaoputou.com/api/brands/ranking?category=' + category + '&price=&region=' + cityKey + '&sort_key=shop_count&page=',
-                            header = { 'sessionId': sessionId },
-                            page = 1, 
-                     )
+lock = 'true'
+lastKey = '青海省'
+cityLock = 'true'
+lastCity = ''
+for cityKey, citys in cityRes.items():
+       if cityKey == lastKey:
+           lock = 'false'
        for city in citys:
+              if city == lastKey:
+                     cityLock = 'false'
+                     lastCity = city
+       if lock == 'false' or cityLock == 'false':
+            if lock == 'false':
               main(
-                     url = 'https://fa.kaoputou.com/api/brands/ranking?category=&price=&region=' + city + '&sort_key=shop_count&page=',
+                     url = 'https://fa.kaoputou.com/api/brands/ranking?category=&price=&region=' + cityKey + '&sort_key=shop_count&page=',
                      header = { 'sessionId': sessionId },
                      page = 1,
               )
-              for categorys in categoryRes:
-                     for category in categorys:
-                            main(
-                                   url = 'https://fa.kaoputou.com/api/brands/ranking?category=' + category + '&price=&region=' + city + '&sort_key=shop_count&page=',
+              for category in categoryRes:
+                     main(
+                                   url = 'https://fa.kaoputou.com/api/brands/ranking?category=' + category['name'] + '&price=&region=' + cityKey + '&sort_key=shop_count&page=',
                                    header = { 'sessionId': sessionId },
                                    page = 1, 
-                            )
-              pass
-       # region=广东省
-       # region=广州
+                     )
+              cityLock = 'false'
+              lock = 'false'
+            for city in citys:
+                   if cityLock == 'false' and lastCity == city :
+                     main(
+                                   url = 'https://fa.kaoputou.com/api/brands/ranking?category=&price=&region=' + city + '&sort_key=shop_count&page=',
+                                   header = { 'sessionId': sessionId },
+                                   page = 1,
+                     )
+                     for category in categoryRes:
+                                   main(
+                                          url = 'https://fa.kaoputou.com/api/brands/ranking?category=' + category['name'] + '&price=&region=' + city + '&sort_key=shop_count&page=',
+                                          header = { 'sessionId': sessionId },
+                                          page = 1, 
+                                   )
+                     cityLock = 'false'
+                     lock = 'false'
+                     lastCity = city
+                     pass
+            # region=广东省
+            # region=广州
        pass
 
 # 全国无筛选查询
